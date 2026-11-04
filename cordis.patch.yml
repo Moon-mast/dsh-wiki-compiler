@@ -1,0 +1,57 @@
+# dsh-wiki-compiler — DSH bundle patch layer
+#
+# Two rows are inserted:
+#
+# 1. `dsh-wiki-compiler` mounts the host plugin globally: every agent in the
+#    profile sees the five vault tools plus `kb_routine`. `registerPrompt: false`
+#    keeps the compile rules out of unrelated agents' system prompts.
+#
+# 2. `preset-wiki-compiler` publishes an agent preset named "知识库编译". Agents
+#    created with it get a scoped second instance of the bundle: the same tools
+#    (shadowing the global ones) and the compile-rules prompt section, on top of
+#    the filesystem, web and todo tools the routines need.
+#
+# `vaultRoot` is empty on purpose: the session working directory is the vault, so
+# the same install works for any vault the user opens.
+
+- insert:
+    - id: dsh-wiki-compiler
+      name: 'dsh-wiki-compiler'
+      config:
+        vaultRoot: ''
+        registerPrompt: false
+
+- insert:
+    - id: preset-wiki-compiler
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: wiki-compiler
+        order: 100
+        name: 知识库编译
+        description: 把 raw/ 里的新闻编译成互相链接的 Obsidian 知识库（四级分流、矛盾留痕、每日时间线、每周体检、问答回写）。
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: >-
+                你是 Obsidian 知识库的编译维护者，负责把 raw/ 中的原始材料编译成 wiki/ 中互相链接的页面。
+                你先读后写、保留原始数字与日期、绝不臆造；遇到矛盾只记录不覆盖。
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+          - id: tool-web
+            name: '@deepseek-ai/dsh-tool-web'
+          - id: tool-todo
+            name: '@deepseek-ai/dsh-tool-todo'
+            config:
+              allowParallelInProgress: true
+          - id: tool-ask-user
+            name: '@deepseek-ai/dsh-tool-ask-user'
+          - id: dsh-wiki-compiler
+            name: 'dsh-wiki-compiler'
+            config:
+              vaultRoot: ''
+              registerPrompt: true

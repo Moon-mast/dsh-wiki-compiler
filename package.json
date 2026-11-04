@@ -1,0 +1,44 @@
+{
+  "name": "dsh-wiki-compiler",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness bundle for an Obsidian-style knowledge vault: compile raw news into a linked wiki with five model-facing tools, an on-demand routine library, prompt sections, and a ready-made agent preset.",
+  "type": "module",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./package.json": "./package.json",
+    "./prompts/*": "./prompts/*"
+  },
+  "files": [
+    "index.js",
+    "cordis.patch.yml",
+    "prompts/",
+    "examples/",
+    "test/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-bundle",
+    "obsidian",
+    "knowledge-base",
+    "wiki",
+    "rss",
+    "agent-preset"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node test/smoke.mjs"
+  },
+  "license": "MIT"
+}
