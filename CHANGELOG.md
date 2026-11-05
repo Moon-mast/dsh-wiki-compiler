@@ -1,5 +1,16 @@
 # 更新日志
 
+## 0.2.0
+
+- 新增浏览器半 `client/console.js`：输入框下方可折叠控制台，「立即编译 / 运行 Lint / 停止」三个按钮。
+- 触发链路：`sessions.retain(sessionId)` → `session.prompt([{type:"text"}], "queue")`，指令要求 Agent 先加载对应
+  Routine（`kb_routine`）再执行；不使用自建事件类型，也不在前端起本地端口。
+- 日志链路：订阅同一会话的 `binding.eventSource`（即 `session/event`），把 `turn/start`、`tool/call`、
+  `tool/result`、`turn/end`、`agent/error` 投影为日志行，最多 400 行；日志为只读旁路，不影响 Agent 上下文。
+- 推送前脱敏（`api_key` / `token` / `password` / `secret` / `Authorization: Bearer`）并截断到 200 字。
+- 面板关闭或插件卸载时释放会话引用、取消订阅，不重复注册监听。
+- 新增 `test/console.mjs`：脱敏、截断、参数摘要、事件投影、例行指令、slot 注册的离线校验。
+
 ## 0.1.1
 
 - 修复：预设 `wiki-compiler` 加载失败。`@deepseek-ai/dsh-tool-fs-search` 的 Config 中

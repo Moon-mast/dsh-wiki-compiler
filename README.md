@@ -5,14 +5,15 @@
 它面向 Obsidian 式知识库：`raw/` 存放原始材料（只读），`wiki/` 是编译产物（concepts / entities / timelines / sources），`derived/` 存放问答产物，`_meta/` 存放清单、体检报告与版本备份。
 
 - **零运行时依赖**：只用 Node 内置模块和 DSH 已经提供的服务（`tools`、`workingDirectory`、`systemPrompt`）。
-- **Host-only**：不注册客户端 UI，也不需要构建步骤；`index.js` 即插件本体。
+- **无需构建步骤**：`index.js` 是 Host 本体，`client/console.js` 是纯 JS 的浏览器半（`window.__ModuleLoader__.load({...})` 形式，React 由 DSH 的模块表提供）。
 - **规则与工具同源**：`prompts/**` 既是写作规范，也是插件运行时读取的资产（`kb_routine` 按需加载，不常驻上下文）。
 
 ## 目录
 
 ```
 .
-├── index.js               # 插件本体：6 个工具 + 编译规则提示词段落
+├── index.js               # Host 本体：6 个工具 + 编译规则提示词段落
+├── client/console.js      # 浏览器半：输入框下方悬浮控制台（触发例行流程 + 实时日志）
 ├── cordis.patch.yml       # bundle patch：全局工具行 + “知识库编译” agent preset
 ├── prompts/
 │   ├── sections/compile-rules.md          # 编译总则（三级铁律 + 四级分流 + 格式规范）
@@ -20,6 +21,7 @@
 │   └── routines/*.md                      # daily-compile / weekly-lint / query 三套流程
 ├── examples/vault/        # 可直接打开的示例知识库（含 raw/ 与 wiki/ 各一篇）
 ├── test/smoke.mjs         # 离线冒烟测试：假 ctx + 临时 vault + 输出 schema 校验
+├── test/console.mjs       # 浏览器半的离线测试：脱敏、截断、事件投影、slot 注册
 └── package.json
 ```
 
@@ -37,6 +39,8 @@ plugin_manager({ action: "install_bundle", target: "<本仓库绝对路径>" })
 - **新增 agent preset「知识库编译」**：新建 agent 时选择它，即可获得编译总则段落 + 文件/搜索/网页/待办工具；该 preset 内的工具是作用域内注册，会遮蔽同名的全局工具。
 
 修改 `index.js` 后需要重新加载模块：在插件列表里把本插件（或整个 bundle）停用再启用一次即可；不行再重启 DSH。
+
+修改 `client/console.js`，或首次让浏览器半生效（本包新增了 `dsh.client` 声明与 `./client` 导出）后，**必须重启 DSH**：客户端模块表在 Host 启动时合成，之后不会再重新读取包的 `package.json`。
 
 修改 `cordis.patch.yml`（例如换成自己的 `vaultRoot`、增删 preset 内的工具）后，同样把整个 bundle 停用再启用一次——DSH 会在启用时重新读取本包的补丁层；只重启本插件行不会重读配置。
 
@@ -117,6 +121,18 @@ vault/
 
 `read_wiki_index` 只返回 `compiled !== true` 的条目；manifest 不存在时会退回扫描 `raw/` 下的 Markdown（日期取文件名中的 `YYYY-MM-DD`），方便从零开始。例行流程负责把 `compiled` 与 `destinations` 回写。
 
+## 控制台（滑动面板）
+
+输入框下方有一条可折叠的控制台（`conversation.composer.dock`），它把「立即编译」「运行 Lint」「停止」三个按钮接到**当前会话的真实 Agent 回合**上：
+
+- 点击「立即编译」→ 前端用 `sessions` 服务保留当前会话，然后 `session.prompt([{type:"text", text: 指令}], "queue")` 注入一条任务消息；指令要求 Agent 先调 `kb_routine({name:"daily-compile"})` 再照步骤执行。
+- 日志由同一会话的**会话事件源**（`binding.eventSource`，即 DSH 的 `session/event` 流）投影得到：`turn/start`、`tool/call`、`tool/result`、`turn/end`、`agent/error` 各映射成一行，工具名 + 参数摘要 + 结果前 200 字。
+- 前端只做触发与展示：不调工具、不读写文件、不开本地端口；日志是只读旁路，不进入模型上下文。
+- 推送前做脱敏：`api_key` / `token` / `password` / `secret` / `Authorization: Bearer` 一律替换为 `***`，正文截断到 200 字。
+- 关闭面板或插件卸载时会 `release()` 会话引用并取消订阅，不会重复注册监听。
+
+> 架构说明：本版本（`@deepseek-ai/dsh-desktop` 0.2.1-rc.5）没有第三方可用的 Host↔浏览器事件总线——`ctx.emit` 只在 Host 内广播，`ctx.remote.$on` 的事件名是官方白名单，客户端事件只有 `connection/reset`、`locale/change`、`slots/changed`、`theme/change`。因此「事件总线」改用 DSH 原生的两条通道：触发 = 会话 `prompt()`，日志 = 会话事件源；两者都走既有的 `session/event`，不需要自定义事件类型。
+
 ## 使用
 
 1. 新建 agent，preset 选「知识库编译」。
@@ -131,7 +147,9 @@ vault/
 
 ```bash
 node test/smoke.mjs     # 离线冒烟：无需网络、无需 DSH
+node test/console.mjs   # 浏览器半离线测试：脱敏 / 截断 / 事件投影 / slot 注册
 node --check index.js
+node --check client/console.js
 ```
 
 冒烟测试覆盖：6 个工具注册、提示词段落、索引/manifest 解析、搜索（含 scope）、读写与备份、`raw/` 与路径穿越拒绝、三套例行流程加载、单源失败降级，并把每个返回值按工具自己的 output schema 校验一遍（与 DSH registry 的校验口径一致）。
