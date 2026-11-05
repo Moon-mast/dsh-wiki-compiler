@@ -42,11 +42,18 @@
             name: '@deepseek-ai/dsh-tool-fs'
           - id: tool-fs-search
             name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              # required by @deepseek-ai/dsh-tool-fs-search's Config schema
+              sampleOverCapGlobResults: false
           - id: tool-web
             name: '@deepseek-ai/dsh-tool-web'
+            config:
+              fetch: true
+              searchTimeoutMs: 60000
           - id: tool-todo
             name: '@deepseek-ai/dsh-tool-todo'
             config:
+              # required by @deepseek-ai/dsh-tool-todo's Config schema
               allowParallelInProgress: true
           - id: tool-ask-user
             name: '@deepseek-ai/dsh-tool-ask-user'

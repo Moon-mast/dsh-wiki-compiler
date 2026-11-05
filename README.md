@@ -36,7 +36,13 @@ plugin_manager({ action: "install_bundle", target: "<本仓库绝对路径>" })
 - **工具全局可见**：所有 agent 都能看到 `read_wiki_index`、`search_wiki`、`read_wiki_file`、`write_wiki_file`、`fetch_ai_news`、`kb_routine`。
 - **新增 agent preset「知识库编译」**：新建 agent 时选择它，即可获得编译总则段落 + 文件/搜索/网页/待办工具；该 preset 内的工具是作用域内注册，会遮蔽同名的全局工具。
 
-若改动到 `index.js`（而不是配置文件），DSH 需要重新加载模块：在插件列表里把本插件停用再启用一次即可；不行再重启 DSH。
+修改 `index.js` 后需要重新加载模块：在插件列表里把本插件（或整个 bundle）停用再启用一次即可；不行再重启 DSH。
+
+修改 `cordis.patch.yml`（例如换成自己的 `vaultRoot`、增删 preset 内的工具）后，同样把整个 bundle 停用再启用一次——DSH 会在启用时重新读取本包的补丁层；只重启本插件行不会重读配置。
+
+> 注意：本 preset 复用官方插件行时，必须满足它们的必填配置。已知必填项：
+> `@deepseek-ai/dsh-tool-fs-search` 的 `sampleOverCapGlobResults`、`@deepseek-ai/dsh-tool-todo` 的 `allowParallelInProgress`。
+> 缺任何一项，选择「知识库编译」时会报 `缺少必填配置` 并加载失败。
 
 ## 工具
 
