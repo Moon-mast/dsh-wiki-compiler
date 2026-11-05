@@ -1,5 +1,14 @@
 node_modules/
+dist/
+build/
+tmp/
+.tmp/
+.temp/
 *.log
+npm-debug.log*
+pnpm-debug.log*
+.env
+.env.*
 .DS_Store
 Thumbs.db
 .sandbox-test.txt
