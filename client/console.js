@@ -147,36 +147,48 @@ window.__ModuleLoader__.load({
     }
 
     function turnEndKind(reason) {
+      if (typeof reason === 'string') return reason;
       if (!reason || typeof reason !== 'object') return 'completed';
       if (typeof reason.kind === 'string') return reason.kind;
+      if (typeof reason.reason === 'string') return reason.reason;
       return 'completed';
     }
 
-    function lineForEvent(event) {
+    // Project one `session/event` entry into a console line. `calls` maps a
+    // tool call id to its tool name so a later `tool/result` can name the tool
+    // it belongs to (the result event itself only carries the tool call id).
+    function lineForEvent(event, calls) {
       if (!event || typeof event.type !== 'string') return null;
       const data = event.data && typeof event.data === 'object' ? event.data : {};
+      const pending = calls && typeof calls.get === 'function' ? calls : null;
       switch (event.type) {
         case 'turn/start':
-          return { level: 'run', text: `turn/start:${data.turn ?? '?'}`, args: { turn: data.turn } };
-        case 'turn/end':
+          return { kind: 'turn/start', level: 'run', extra: { turn: data.turn } };
+        case 'turn/end': {
+          const reason = turnEndKind(data.reason);
+          return { kind: 'turn/end', level: reason === 'completed' ? 'ok' : 'warn', extra: { reason, turn: data.turn } };
+        }
+        case 'tool/call': {
+          const callId = typeof data.callId === 'string' ? data.callId : undefined;
+          if (pending && callId) pending.set(callId, data.name);
           return {
-            level: turnEndKind(data.reason) === 'completed' ? 'ok' : 'warn',
-            text: `turn/end:${turnEndKind(data.reason)}`,
-            args: { kind: turnEndKind(data.reason), turn: data.turn },
-          };
-        case 'tool/call':
-          return {
+            kind: 'tool/call',
             level: 'info',
-            text: `tool/call:${data.name ?? '?'}`,
-            args: { name: data.name, summary: summarizeArguments(data.arguments) },
+            extra: { name: data.name, summary: summarizeArguments(data.arguments) },
           };
+        }
         case 'tool/result': {
-          const isError = Boolean(data.error) || Boolean(data.message && data.message.isError);
-          const body = extractText(data.message && data.message.content);
+          const message = data.message && typeof data.message === 'object' ? data.message : {};
+          const callId = typeof message.toolCallId === 'string' ? message.toolCallId : undefined;
+          const name = (pending && callId && pending.get(callId)) || undefined;
+          if (pending && callId) pending.delete(callId);
+          const isError = Boolean(data.error) || Boolean(message.isError);
+          const body = extractText(message.content);
           return {
+            kind: isError ? 'tool/error' : 'tool/ok',
             level: isError ? 'error' : 'ok',
-            text: isError ? `tool/result:error:${(data.error && data.error.name) || 'tool_error'}` : 'tool/result:ok',
-            args: {
+            extra: {
+              name,
               code: data.error && data.error.code,
               reason: data.error && data.error.reason,
               summary: safeSummary(body, 200),
@@ -184,8 +196,7 @@ window.__ModuleLoader__.load({
           };
         }
         case 'assistant/error':
-        case 'agent/error':
-          return { level: 'error', text: `error:${event.type}`, args: { summary: safeSummary(JSON.stringify(data), 200) } };
+          return { kind: 'error', level: 'error', extra: { summary: safeSummary(JSON.stringify(data), 200) } };
         default:
           return null;
       }
@@ -195,21 +206,22 @@ window.__ModuleLoader__.load({
       if (!entry) return '';
       const { kind, text, extra } = entry;
       const time = new Date(entry.time).toLocaleTimeString();
+      const named = (extra && extra.name) || '';
       switch (kind) {
         case 'turn/start':
           return `${time} ${t.turnStart(extra && extra.turn)}`;
         case 'turn/end':
-          return `${time} ${t.turnEnd((extra && extra.kind) || 'completed')}`;
+          return `${time} ${t.turnEnd((extra && extra.reason) || 'completed')}`;
         case 'tool/call':
-          return `${time} ${t.toolCall((extra && extra.name) || '?')}${extra && extra.summary ? ` ${extra.summary}` : ''}`;
+          return `${time} ${t.toolCall(named || '?')}${extra && extra.summary ? ` ${extra.summary}` : ''}`;
         case 'tool/ok':
-          return `${time} ${t.toolOk}${extra && extra.summary ? ` ${extra.summary}` : ''}`;
+          return `${time} ${t.toolOk}${named ? ` ${named}` : ''}${extra && extra.summary ? ` ${extra.summary}` : ''}`;
         case 'tool/error': {
-          const detail = [extra && extra.reason, extra && extra.summary].filter(Boolean).join(' · ');
+          const detail = [named, extra && extra.reason, extra && extra.summary].filter(Boolean).join(' · ');
           return `${time} ${t.toolFail}${detail ? ` ${detail}` : ''}`;
         }
         default:
-          return `${time} ${text}`;
+          return `${time} ${(extra && extra.summary) || text || ''}`;
       }
     }
 
@@ -343,6 +355,7 @@ window.__ModuleLoader__.load({
         let unsubscribeSession = null;
         let lastSeq = -1;
 
+        const calls = new Map();
         const onEventWindow = () => {
           const binding = referenceRef.current && referenceRef.current.binding;
           if (!binding || !binding.eventSource) return;
@@ -355,20 +368,9 @@ window.__ModuleLoader__.load({
             const seq = typeof event.seq === 'number' ? event.seq : 0;
             if (seq <= lastSeq) continue;
             lastSeq = seq;
-            const mapped = lineForEvent(event);
+            const mapped = lineForEvent(event, calls);
             if (!mapped) continue;
-            const extra = mapped.args || {};
-            const kind =
-              mapped.text.startsWith('turn/start')
-                ? 'turn/start'
-                : mapped.text.startsWith('turn/end')
-                  ? 'turn/end'
-                  : mapped.text.startsWith('tool/call')
-                    ? 'tool/call'
-                    : mapped.level === 'error'
-                      ? 'tool/error'
-                      : 'tool/ok';
-            fresh.push({ kind, level: mapped.level, extra, time: event.time || Date.now() });
+            fresh.push({ kind: mapped.kind, level: mapped.level, extra: mapped.extra, time: event.time || Date.now() });
           }
           append(fresh);
           const snapshot = binding.session && binding.session.getSnapshot ? binding.session.getSnapshot() : null;
@@ -593,7 +595,9 @@ window.__ModuleLoader__.load({
 
     return {
       name: 'dsh-wiki-compiler/client',
-      inject: ['slots', 'locale', 'sessions'],
+      // Only `slots` is required for activation; `locale` and `sessions` are
+      // looked up lazily so a missing optional service never blocks the panel.
+      inject: ['slots'],
       apply,
       // Exposed for the repository's Node-side unit tests only.
       __test: { redact, clip, summarizeArguments, extractText, lineForEvent, formatLine, turnEndKind, ROUTINE_INSTRUCTIONS },

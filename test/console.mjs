@@ -49,7 +49,7 @@ const { redact, clip, summarizeArguments, extractText, lineForEvent, formatLine,
   client.__test;
 
 assert.equal(typeof client.apply, 'function');
-assert.deepEqual(client.inject, ['slots', 'locale', 'sessions']);
+assert.deepEqual(client.inject, ['slots'], 'only the slot service is required for activation');
 
 // --- secret redaction -------------------------------------------------------
 assert.equal(redact('api_key=sk-abcdef1234567890'), 'api_key=***');
@@ -69,33 +69,53 @@ assert.equal(summarizeArguments('not json but has password=p@ssw0rd'), 'not json
 assert.deepEqual(extractText([{ type: 'text', text: 'a' }, { type: 'image' }, { type: 'text', text: 'b' }]), 'a\nb');
 assert.equal(turnEndKind({ kind: 'completed' }), 'completed');
 assert.equal(turnEndKind({ kind: 'error', error: { message: 'boom' } }), 'error');
+assert.equal(turnEndKind('aborted'), 'aborted');
 assert.equal(turnEndKind(undefined), 'completed');
 
+const calls = new Map();
 const start = lineForEvent({ type: 'turn/start', time: 1, data: { turn: 2 } });
-assert.equal(start.text, 'turn/start:2');
-const call = lineForEvent({
-  type: 'tool/call',
-  time: 2,
-  data: { name: 'write_wiki_file', arguments: '{"path":"wiki/x.md","apiKey":"abcdef"}' },
-});
+assert.equal(start.kind, 'turn/start');
+assert.equal(start.extra.turn, 2);
+const call = lineForEvent(
+  {
+    type: 'tool/call',
+    time: 2,
+    data: { callId: 'c1', name: 'write_wiki_file', arguments: '{"path":"wiki/x.md","apiKey":"abcdef"}' },
+  },
+  calls,
+);
+assert.equal(call.kind, 'tool/call');
 assert.equal(call.level, 'info');
-assert.equal(call.text, 'tool/call:write_wiki_file');
-assert.match(call.args.summary, /apiKey=\*\*\*/);
-const okResult = lineForEvent({
-  type: 'tool/result',
-  time: 3,
-  data: { message: { role: 'tool', content: [{ type: 'text', text: 'written 512 bytes' }] } },
-});
+assert.equal(call.extra.name, 'write_wiki_file');
+assert.match(call.extra.summary, /apiKey=\*\*\*/);
+assert.equal(calls.get('c1'), 'write_wiki_file');
+const okResult = lineForEvent(
+  {
+    type: 'tool/result',
+    time: 3,
+    data: { message: { role: 'tool', toolCallId: 'c1', content: [{ type: 'text', text: 'written 512 bytes' }] } },
+  },
+  calls,
+);
+assert.equal(okResult.kind, 'tool/ok');
 assert.equal(okResult.level, 'ok');
-assert.match(okResult.args.summary, /written 512 bytes/);
-const badResult = lineForEvent({
-  type: 'tool/result',
-  time: 4,
-  data: { message: { role: 'tool', isError: true, content: [] }, error: { name: 'FsError', code: 'FS_DENIED' } },
-});
+assert.equal(okResult.extra.name, 'write_wiki_file');
+assert.match(okResult.extra.summary, /written 512 bytes/);
+assert.equal(calls.has('c1'), false, 'a result must retire its pending call');
+const badResult = lineForEvent(
+  {
+    type: 'tool/result',
+    time: 4,
+    data: { message: { role: 'tool', isError: true, content: [] }, error: { name: 'FsError', code: 'FS_DENIED' } },
+  },
+  calls,
+);
+assert.equal(badResult.kind, 'tool/error');
 assert.equal(badResult.level, 'error');
-assert.equal(badResult.args.code, 'FS_DENIED');
-const end = lineForEvent({ type: 'turn/end', time: 5, data: { turn: 1, reason: { kind: 'error', error: { message: 'x' } } } });
+assert.equal(badResult.extra.code, 'FS_DENIED');
+const end = lineForEvent({ type: 'turn/end', time: 5, data: { turn: 1, reason: 'aborted' } });
+assert.equal(end.kind, 'turn/end');
+assert.equal(end.extra.reason, 'aborted');
 assert.equal(end.level, 'warn');
 assert.equal(lineForEvent({ type: 'user/message', time: 6, data: {} }), null);
 
